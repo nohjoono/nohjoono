@@ -16,8 +16,8 @@ class CustomEnv(gym.Env):
         self.init_data = init_data
         self.dim_eqp = dim_eqp
         self.dim_lot = dim_lot
-        self.num_eqp = num_eqp if num_eqp != 0 else len(self.initial_equipments)
-        self.num_lot = num_lot if num_lot != 0 else len(self.initial_lots)
+        self.num_eqp = num_eqp
+        self.num_lot = num_lot
         self.equipments = []
         self.lots = []
         self.st = []
@@ -32,8 +32,8 @@ class CustomEnv(gym.Env):
         self.observation_space = Dict(
             # eqp_status=Box(0, 1, shape=(dim_eqp,), dtype=bool),
             eqp_end_time=Box(0, 1, shape=(dim_eqp,), dtype=float),
-            # lot_status=Box(0, 1, shape=(dim_lot,), dtype=bool),
-            st=Box(20, 40, shape=(dim_eqp * dim_lot,), dtype=np.int32),
+            lot_status=Box(0, 1, shape=(dim_lot,), dtype=bool),
+            # st=Box(20, 40, shape=(dim_eqp,dim_lot), dtype=np.int16),
         )
 
         # Initialize
@@ -50,15 +50,15 @@ class CustomEnv(gym.Env):
 
         # 초기화
         self.equipments.clear()
-        for i in range(1, self.num_eqp + 1):
+        for i in range(0, self.num_eqp):
             self.equipments.append(Equipment(f"E{i}"))
 
         self.lots.clear()
-        for i in range(1, self.num_lot + 1):
+        for i in range(0, self.num_lot):
             self.lots.append(Lot(f"L{i}"))
 
-        self.st = np.zeros(self.dim_eqp * self.dim_lot, dtype=np.int8)
-        self.st[:self.num_eqp * self.num_lot] = np.random.randint(20, 41, self.num_eqp * self.num_lot)
+        self.st = np.zeros((self.dim_eqp, self.dim_lot), dtype=np.int16)
+        self.st[0:self.num_eqp, 0:self.num_lot] = np.random.randint(20, 41, size=(self.num_eqp, self.num_lot))
 
         observation = self._get_observation()
         info = {}
@@ -75,7 +75,7 @@ class CustomEnv(gym.Env):
 
         # print(f"action no : {action}, eqp : {equipment.id}, lot : {lot.id}")
 
-        production_time = self.st[action]
+        production_time = self.st[equipment_index, lot_index]
         equipment.end_time += production_time
         equipment.history.append(lot.id)
         
@@ -84,9 +84,8 @@ class CustomEnv(gym.Env):
 
         observation = self._get_observation()
         reward = 0
-        # reward += float(production_time * -1.0)
-        # reward -= float(self._get_reward_std())
         reward += float(self._get_reward_cmax())
+        #reward += float(self._get_reward_std())
         terminated = all(lot.status == "done" for lot in self.lots)
         truncated = False
 
@@ -133,8 +132,8 @@ class CustomEnv(gym.Env):
         observation = {
             # "eqp_status" : eqp_status,
             "eqp_end_time": eqp_end_times,
-            # "lot_status": lot_status,
-            "st": self.st,
+            "lot_status": lot_status,
+            # "st": self.st,
         }
         
         return observation
@@ -148,13 +147,9 @@ class CustomEnv(gym.Env):
     def _get_reward_std(self):
         eqp_end_times = np.array([eqp.end_time for eqp in self.equipments])
         reward = np.std(eqp_end_times)
-        return reward
-        
-
-    
+        return float(reward * -1.0)
 
     def render(self):
-        print(f"------------------------------------------------------------------------")
         print(f"@ episode: {self.episode_cnt}, step: {self.step_cnt}")
         print(f"@ EQP Info")
         for eqp in self.equipments:
@@ -164,27 +159,6 @@ class CustomEnv(gym.Env):
         #     print(f"{lot.id}: 상태={lot.status}, eqp={lot.eqp}")
         # print(self.st)
         print(f"@ reward: {self.reward}")
+        print(f"------------------------------------------------------------------------")
 
-from sb3_contrib import MaskablePPO
-from sb3_contrib.common.maskable.evaluation import evaluate_policy
-from stable_baselines3.common.env_checker import check_env
-from stable_baselines3.common.monitor import Monitor
-
-from custom_env import CustomEnv
-from custom_vec_env import CustomVecEnv
-
-num_eqp = 3
-num_lot = 7
-dim_eqp = 3
-dim_lot = 10
-tb_log_name = f'({num_eqp},{num_lot})-({dim_eqp},{dim_lot})'
-
-env = CustomEnv(init_data=None, num_eqp=num_eqp, num_lot=num_lot, dim_eqp=dim_eqp, dim_lot=dim_lot)
-env = Monitor(env, filename=None)
-
-model = MaskablePPO("MultiInputPolicy", env, verbose=1, tensorboard_log="./logs/")
-total_timesteps = 1000 * 1000
-
-model.learn(total_timesteps, tb_log_name=tb_log_name)
-model.save("./model/MaskablePPO")
 ```
